@@ -33,12 +33,6 @@ El objetivo de este repositorio es proporcionar un marco reproducible para:
 
 ## Uso rápido
 
-```bash
-git clone https://github.com/usuario/METFI-bayesian-pipelines.git
-cd METFI-bayesian-pipelines
-pip install -r requirements.txt
-```
-
 Ejecutar un ejemplo:
 
 ```bash
