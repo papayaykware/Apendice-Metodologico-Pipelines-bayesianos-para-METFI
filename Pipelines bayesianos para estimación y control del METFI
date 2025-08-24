@@ -1,0 +1,211 @@
+"""
+Apéndice metodológico: Pipelines bayesianos para estimación y control del METFI
+Formato: pseudocódigo Python listo para portar a repositorio GitHub.
+Notas generales:
+ - Este apéndice contiene: estructura de ficheros, pseudocódigo para ingestión y preprocesado,
+   extracción modal, estimadores de helicidad, coherencia y entropía, y pipeline bayesiano
+   para estimación de parámetros y comparación de modelos (evidencia Z).
+ - Las funciones están escritas como pseudocódigo Python con anotaciones tipadas y comentarios.
+ - Para implementación real recomendamos librerías: numpy, scipy, xarray, pymc (v4+), arviz,
+   numba (opt), pyhton-fastfilters, pyvista (visualización 3D), pymultinest or dynesty (evidencia).
+
+Estructura de repositorio (sugerida)
+/
+├─ data/
+│  ├─ raw/                 # datos brutos (satélites, redes terrestres)
+│  └─ processed/           # series temporales preprocesadas
+├─ src/
+│  ├─ ingest.py            # funciones de lectura y sincronización GNSS
+│  ├─ preprocess.py        # detrend, filtrado, eliminación de artefactos
+│  ├─ modal_projection.py  # proyección en modos toroidales/poloidales
+│  ├─ estimators.py        # helicidad, coherencia, info mutua
+│  ├─ bayes_pipeline.py    # modelo bayesiano, MCMC, cálculo de evidencia
+│  └─ alerts.py            # reglas de decisión y generación de reportes
+├─ notebooks/              # notebooks de experimentación
+├─ tests/
+└─ README.md
+
+---
+# pseudocódigo: ingest.py
+---
+from typing import Dict, Tuple
+import numpy as np
+import xarray as xr
+
+def read_satellite_timeseries(path: str) -> xr.Dataset:
+    """Leer archivos de satélite con magnetómetros vectoriales.
+    - Asegurar timestamps en UTC/GNSS.
+    - Retornar Dataset con variables Bx, By, Bz y metadata de posición.
+    """
+    ds = xr.open_dataset(path)  # adaptar según formato
+    # normalizar nombres, asegurar unidad en nT o T
+    return ds
+
+def sync_and_interpolate(datasets: Dict[str, xr.Dataset], resample_hz: float) -> xr.Dataset:
+    """Sincroniza múltiples fuentes al reloj GNSS y remuestrea a frecuencia deseada.
+    - datasets: dict de id->Dataset
+    - resample_hz: frecuencia objetivo en Hz
+    """
+    # convertir a índice temporal uniforme
+    # interpolar faltantes con método 'time' o 'spline' según calidad
+    # devolver ds sincronizado
+    return synced_ds
+
+---
+# pseudocódigo: preprocess.py
+---
+import scipy.signal as signal
+
+def detrend_and_demean(series: np.ndarray) -> np.ndarray:
+    return signal.detrend(series)
+
+def bandstop_powerline(series: np.ndarray, fs: float) -> np.ndarray:
+    # eliminar 50/60Hz y armónicos si es necesario
+    return series_filtered
+
+def highpass_remove_trend(series: np.ndarray, fs: float, cutoff_hz: float=1e-4) -> np.ndarray:
+    # remover deriva muy baja frecuencia (e.g., largas tendencias geológicas)
+    return filtered
+
+def notch_and_clean(ds: xr.Dataset, fs: float) -> xr.Dataset:
+    # aplicar cadena de filtros y conservar metadata
+    return ds_clean
+
+---
+# pseudocódigo: modal_projection.py
+---
+import numpy as np
+
+def spherical_vector_harmonic_projection(Bx, By, Bz, lmax: int=16):
+    """Proyecta el campo vectorial superficial en modos esféricos toroidales/poloidales.
+    - Retorna coeficientes a_{l,m}^T y a_{l,m}^P en función del tiempo.
+    - Requiere gridding en (theta, phi) o uso de herramientas como pyshtools.
+    """
+    # pasos:
+    # 1) interpolar datos a grilla esférica uniforme
+    # 2) usar base de sph. vector harmonics para calcular proyecciones
+    # 3) separar componentes toroidales y poloidales
+    return coeffs_T, coeffs_P
+
+def toroidal_mode_reduction(coeffs_T, mapping_to_n: dict) -> np.ndarray:
+    """Agrega coeficientes por 'n' modal efectivo (anular) adecuado al modelo toroidal.
+    mapping_to_n: por ejemplo, combinación lineal de (l,m) que representa modo n.
+    """
+    return a_n_t
+
+---
+# pseudocódigo: estimators.py
+---
+import numpy as np
+
+def spectral_density_welch(x: np.ndarray, fs: float, nperseg: int=1024):
+    from scipy.signal import welch
+    f, Pxx = welch(x, fs=fs, nperseg=nperseg)
+    return f, Pxx
+
+def coherence_magnitude(x: np.ndarray, y: np.ndarray, fs: float, nperseg: int=1024):
+    from scipy.signal import coherence
+    f, Cxy = coherence(x, y, fs=fs, nperseg=nperseg)
+    return f, Cxy
+
+def helicity_estimator(Bx, By, Bz, dx, dy, dz):
+    """Estimador discreto de helicidad magnética local aproximada.
+    - Requiere reconstrucción del potencial vectorial A en gauge Coulomb o puntero.
+    - Aquí se sugiere cálculo de helicidad relativa mediante aproximaciones en subvolúmenes.
+    """
+    # 1) calcular J = curl B / mu0
+    # 2) estimar A por inversion (p.ej., resolver laplaciano A = -mu0 J en dominio acotado)
+    # 3) H = integral A dot B dV
+    return H
+
+def mutual_information_gaussian(x: np.ndarray, y: np.ndarray):
+    """Estimador rápido de información mutua bajo aproximación gaussiana.
+    MI = -0.5 * log(1 - rho^2) con rho correlación de Pearson.
+    Para no-gaussiano usar estimadores de Kraskov.
+    """
+    rho = np.corrcoef(x, y)[0,1]
+    mi = -0.5 * np.log(1 - rho**2 + 1e-12)
+    return mi
+
+---
+# pseudocódigo: bayes_pipeline.py
+---
+# Modelo y jerarquía bayesiana (pseudocódigo con PyMC-like)
+import pymc as pm
+import arviz as az
+
+def build_mtf_model(data, fs, prior_specs=None):
+    """Construye modelo bayesiano jerárquico para METFI.
+    Observables: espectro modal E_n(t), coherencia C_AB(n,t), helicidad H(t)
+    Parámetros = theta = {alpha_eff, beta_eff, eta, gamma_n, omega_n, H_c, phi_c}
+    """
+    with pm.Model() as model:
+        # Priors no informativos o informativos suaves
+        alpha = pm.Normal('alpha', mu=0.0, sigma=1.0)
+        beta = pm.HalfNormal('beta', sigma=1.0)
+        eta = pm.HalfNormal('eta', sigma=1e-3)
+        omega_n = pm.Normal('omega_n', mu=expected_omega, sigma=0.1*expected_omega)
+        gamma_n = pm.HalfNormal('gamma_n', sigma=1e-3)
+        Hc = pm.Normal('Hc', mu=0.0, sigma=1.0)
+        phi_c = pm.Uniform('phi_c', lower=0.0, upper=np.pi)
+
+        # Modelo determinístico para E_n(t) (simplificado)
+        E_pred = deterministic_spectral_model(alpha, beta, eta, omega_n, gamma_n, data['forcing'])
+
+        # Likelihood (ruido asumed gaussian en log-energia)
+        sigma_obs = pm.HalfNormal('sigma_obs', sigma=1.0)
+        E_obs = pm.Normal('E_obs', mu=E_pred, sigma=sigma_obs, observed=data['E_n'])
+
+    return model
+
+def run_inference(model, draws=2000, tune=2000, chains=4):
+    with model:
+        idata = pm.sample(draws=draws, tune=tune, chains=chains, target_accept=0.9)
+    return idata
+
+def compute_evidence_nested(model, nlive=400):
+    """Sugerencia: usar pymultinest o dynesty para cálculo de evidencia Z.
+    Alternativa: aproximación WBIC/LOO, marginal likelihood con bridge sampling.
+    """
+    # Pseudopaso: exportar log-likelihood y priors a motor nested sampler
+    Z = nested_sampler_run(model, nlive=nlive)
+    return Z
+
+---
+# pseudocódigo: alerts.py
+---
+def decision_rule(posterior_samples, criteria):
+    """Reglas de decisión para emitir alerta probabilística.
+    Criteria puede incluir Bayes factor threshold, probabilidad posterior de gamma_n>0,
+    y verificación multi-instrumental.
+    """
+    BF = criteria['BF']
+    prob_travesia = np.mean(posterior_samples['gamma_n'] > 0)
+    cond_phase = np.mean(np.abs(posterior_samples['phi_diff']) < criteria['phi_c'])
+
+    if BF > criteria['BF_thresh'] and prob_travesia > criteria['p_thresh'] and cond_phase > 0.9:
+        return True
+    return False
+
+def generate_report(alert_state: bool, metrics: dict) -> dict:
+    report = {
+        'alert': alert_state,
+        'metrics': metrics,
+        'timestamp': now_utc_iso()
+    }
+    return report
+
+---
+# Apéndice: Esquema de pruebas y validación
+# 1) inyectar señales sintéticas en datos reales para validar detección de picos y coherencia.
+# 2) pruebas de false positive con surrogates temporales (shuffle, phase randomization).
+# 3) cross-validation espacial: requerir detección en >=2 nodos satelitales/terrestres.
+
+---
+# Recomendaciones de implementación
+# - Usar formatos netCDF4 y xarray para manipulación de grillas temporo-espaciales.
+# - Implementar funciones críticas en numba para rendimiento (helicity inversion, proyecciones).
+# - Para evidencia Z, preferir nested sampling (dynesty, pymultinest) o bridge sampling sobre idata.
+# - Mantener pipeline modular y con tests unitarios para cada bloque.
+
+"""
